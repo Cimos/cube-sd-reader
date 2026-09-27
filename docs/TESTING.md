@@ -58,6 +58,30 @@ Same CubeOrange+ and card. v0.1.0 (46,152 bytes) adds the disk name and the Bulk
 
 The Bulk-Only reset, clear-halt and START STOP changes are covered by host tests and this normal-use run; forced USB error recovery was not exercised on hardware.
 
+## Linux and exFAT testing (planned)
+
+Linux can be tested on the Windows bench host by passing the reader into WSL2 with usbipd-win. Status: not run yet.
+
+Checked on the bench host, 27 September 2026:
+
+- usbipd-win is installed and lists the reader as `2dae:1158`, not yet shared.
+- The WSL2 kernel (6.18, microsoft-standard) builds usb-storage, CDC ACM, USB/IP (`vhci_hcd`), VFAT and exFAT; `vhci_hcd` is loaded.
+- Blockers: sharing the device needs Windows administrator rights once, and loading modules and mounting need root in WSL.
+
+Procedure:
+
+1. Eject the disk in Windows first. Attaching moves the device out of Windows like an unplug.
+2. Admin PowerShell, once per device: `usbipd list`, then `usbipd bind --busid <reader bus ID>`. Check it is `2dae:1158` and not a flight controller.
+3. `usbipd attach --wsl --busid <reader bus ID>`.
+4. In WSL: `sudo modprobe usb-storage exfat`. Check `dmesg` for the disk (vendor `Cube`, model `USB Drive`) and `/dev/ttyACM*` for the control port.
+5. `python3 tools/readerctl.py --port /dev/ttyACM0 info`, then mount the partition read-only and hash `sequential.bin` against the recorded SHA-256.
+6. Mount read-write: write, sync and hash a test file, then `umount` and `eject`. Check `readerctl status` shows `media=ejected`, then `bootloader`.
+7. `usbipd detach --busid <reader bus ID>` returns the device to Windows.
+
+exFAT needs a card formatted as exFAT (`mkfs.exfat`, or Windows format). Formatting erases the card: use a spare card, or back up the bench card first. Repeat the write/read/eject checks on Windows and Linux.
+
+Record per run: host kernel, card model and size, filesystem, throughput, hashes, reader error counters, and any `dmesg` resets or errors.
+
 ## Findings
 
 - Installed CubePilot serial drivers outranked the MSC class driver. A targeted switch to Microsoft's storage driver worked; restored ArduPilot subsequently bound correctly. Superseded by the distinct reader USB identity below.

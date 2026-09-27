@@ -10,7 +10,8 @@
 ## Next
 
 - Forced USB error recovery on hardware (Bulk-Only reset and clear-halt paths).
-- Linux and exFAT hosts, more cards, external-reader hash check.
+- Linux and exFAT: procedure and WSL2 prerequisites documented in docs/TESTING.md. Waiting on a one-time usbipd bind (admin), root in WSL, and a spare or backed-up card for exFAT.
+- More cards, external-reader hash check.
 
 ## Later
 
