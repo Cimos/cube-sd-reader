@@ -50,6 +50,20 @@ class SyncTests(unittest.TestCase):
             DEV.sync()
         self.assertEqual(self.target.read_text(), "preexisting")
 
+    def test_removes_generated_copy_of_deleted_source(self):
+        DEV.sync()
+        self.file.unlink()
+        DEV.sync()
+        self.assertFalse(self.target.exists())
+
+    def test_preserves_edited_copy_of_deleted_source(self):
+        DEV.sync()
+        self.target.write_text("independent edit")
+        self.file.unlink()
+        with self.assertRaisesRegex(RuntimeError, "Refusing to delete"):
+            DEV.sync()
+        self.assertEqual(self.target.read_text(), "independent edit")
+
 
 if __name__ == "__main__":
     unittest.main()

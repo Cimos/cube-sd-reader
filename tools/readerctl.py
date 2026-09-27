@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # AP_FLAKE8_CLEAN
-"""Inspect the reader or reboot an already-ejected reader into its retained bootloader."""
+"""Inspect the reader, or restart an already-ejected reader or enter its retained bootloader."""
 import argparse
 import time
 
@@ -52,7 +52,7 @@ def await_bootloader(serial_number, seconds=20):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", required=True, help="Explicit COM port or /dev/ttyACM device")
-    parser.add_argument("command", choices=("info", "status", "bootloader"))
+    parser.add_argument("command", choices=("info", "status", "bootloader", "reboot"))
     args = parser.parse_args()
     import serial
     try:
@@ -69,6 +69,8 @@ def main():
             time.sleep(0.5)
             name = await_bootloader(identity["serial"])
             print(f"Bootloader confirmed on {name}. Use your normal CubeOrange+ ArduPilot uploader.")
+        elif args.command == "reboot":
+            print("Reader restarting; it re-enumerates in a few seconds.")
     except (OSError, serial.SerialException, RuntimeError) as error:
         parser.exit(1, f"ERROR: {error}\n")
 

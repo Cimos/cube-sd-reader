@@ -25,6 +25,7 @@
 
 static Reader::State state;
 static volatile uint32_t epoch;
+static bool msc_reset_required; // Invalid CBW: EP1 stays halted until Bulk-Only reset.
 static uint32_t capacity;
 static SerialUSBDriver control;
 static USBMassStorageDriver storage;
@@ -99,6 +100,9 @@ extern "C" bool reader_eject()
     if (prevented || media == Reader::Media::Initializing) {
         return false;
     }
+    if (media == Reader::Media::Absent || media == Reader::Media::Error) {
+        return true; // Nothing to flush; keep the failure visible in status.
+    }
     if (media == Reader::Media::Ready && !reader_sync_media()) {
         return false;
     }
@@ -124,6 +128,24 @@ extern "C" void reader_prevent(bool prevent)
 {
     chSysLock();
     state.prevent_removal = prevent;
+    chSysUnlock();
+}
+
+extern "C" bool reader_removal_prevented()
+{
+    chSysLock();
+    const bool prevented = state.prevent_removal;
+    chSysUnlock();
+    return prevented;
+}
+
+extern "C" void reader_require_reset(uint32_t command_epoch)
+{
+    chSysLock();
+    // A reset that already arrived must not leave the flag set for the next session.
+    if (command_epoch == epoch) {
+        msc_reset_required = true;
+    }
     chSysUnlock();
 }
 
@@ -224,6 +246,7 @@ static void usb_event(USBDriver *usbp, usbevent_t event)
     switch (event) {
     case USB_EVENT_CONFIGURED:
         epoch++;
+        msc_reset_required = false;
         if (state.media == Reader::Media::Ejected && capacity && !state.quiescing) {
             state.media = Reader::Media::Ready;
         }
@@ -233,6 +256,7 @@ static void usb_event(USBDriver *usbp, usbevent_t event)
     case USB_EVENT_RESET:
     case USB_EVENT_UNCONFIGURED:
         epoch++;
+        msc_reset_required = false;
         sduSuspendHookI(&control);
         break;
     case USB_EVENT_SUSPEND:
@@ -247,18 +271,80 @@ static void usb_event(USBDriver *usbp, usbevent_t event)
     chSysUnlockFromISR();
 }
 
+// Set the EP1 data toggle to DATA0. EPENA/EPDIS are masked out of the write so it
+// cannot re-enable an endpoint the core has just disabled.
+static void msc_data0_I(USBDriver *usbp, bool in)
+{
+    stm32_otg_t *otg = usbp->otg;
+    if (in) {
+        otg->ie[MSC_EP].DIEPCTL = (otg->ie[MSC_EP].DIEPCTL & ~(DIEPCTL_EPENA | DIEPCTL_EPDIS)) |
+                                  DIEPCTL_SD0PID;
+    } else {
+        otg->oe[MSC_EP].DOEPCTL = (otg->oe[MSC_EP].DOEPCTL & ~(DOEPCTL_EPENA | DOEPCTL_EPDIS)) |
+                                  DOEPCTL_SD0PID;
+    }
+}
+
+// Bulk-Only reset touches only the MSC endpoint (BOT 3.1). The CDC endpoints, their
+// FIFOs, queues and toggles are left alone so the control port keeps working.
+static void msc_abort_I(USBDriver *usbp)
+{
+    stm32_otg_t *otg = usbp->otg;
+    usbp->transmitting &= ~(1U << MSC_EP);
+    usbp->receiving &= ~(1U << MSC_EP);
+    osalThreadResumeI(&msc_in.thread, MSG_RESET);
+    osalThreadResumeI(&msc_out.thread, MSG_RESET);
+    otg->DIEPEMPMSK &= ~DIEPEMPMSK_INEPTXFEM(MSC_EP);
+    if (otg->ie[MSC_EP].DIEPCTL & DIEPCTL_EPENA) {
+        otg->ie[MSC_EP].DIEPCTL |= DIEPCTL_EPDIS | DIEPCTL_SNAK;
+    }
+    if (otg->oe[MSC_EP].DOEPCTL & DOEPCTL_EPENA) {
+        otg->oe[MSC_EP].DOEPCTL |= DOEPCTL_EPDIS | DOEPCTL_SNAK;
+    }
+    // Bounded waits: this runs in the USB interrupt.
+    for (unsigned i = 0; i < 10000 && (otg->ie[MSC_EP].DIEPCTL & DIEPCTL_EPENA); i++) {
+    }
+    otg->GRSTCTL = GRSTCTL_TXFNUM(MSC_EP) | GRSTCTL_TXFFLSH;
+    for (unsigned i = 0; i < 10000 && (otg->GRSTCTL & GRSTCTL_TXFFLSH); i++) {
+    }
+    otg->ie[MSC_EP].DIEPINT = 0xFFFFFFFF;
+    otg->oe[MSC_EP].DOEPINT = 0xFFFFFFFF;
+    otg->ie[MSC_EP].DIEPTSIZ = 0;
+    otg->oe[MSC_EP].DOEPTSIZ = 0;
+    otg->ie[MSC_EP].DIEPCTL &= ~(DIEPCTL_EPENA | DIEPCTL_EPDIS | DIEPCTL_STALL);
+    otg->oe[MSC_EP].DOEPCTL &= ~(DOEPCTL_EPENA | DOEPCTL_EPDIS | DOEPCTL_STALL);
+    msc_data0_I(usbp, true);
+    msc_data0_I(usbp, false);
+}
+
 static bool request(USBDriver *usbp)
 {
     const auto *s = usbp->setup;
+    // CLEAR_FEATURE(ENDPOINT_HALT) on EP1.
+    if (s[0] == 0x02 && s[1] == USB_REQ_CLEAR_FEATURE && s[2] == 0 && s[3] == 0 &&
+        (s[4] & 0x7F) == MSC_EP && s[5] == 0 && s[6] == 0 && s[7] == 0) {
+        chSysLockFromISR();
+        const bool keep_halt = msc_reset_required;
+        if (!keep_halt && usbGetDriverStateI(usbp) == USB_ACTIVE) {
+            // ChibiOS only clears STALL; the host resets its toggle, so ours must follow.
+            msc_data0_I(usbp, (s[4] & 0x80) != 0);
+        }
+        chSysUnlockFromISR();
+        if (keep_halt) {
+            usbSetupTransfer(usbp, nullptr, 0, nullptr); // Acknowledge, stay halted.
+            return true;
+        }
+        return false; // The standard handler clears the stall.
+    }
     if (s[4] == 0 && s[5] == 0) {
         if (s[0] == 0x21 && s[1] == 0xFF &&
             s[2] == 0 && s[3] == 0 && s[6] == 0 && s[7] == 0) {
             // Abort waits so a reset cannot leave a stale CSW in the next session.
             chSysLockFromISR();
             epoch++;
+            msc_reset_required = false;
             if (usbGetDriverStateI(usbp) == USB_ACTIVE) {
-                usbDisableEndpointsI(usbp);
-                configure_endpoints(usbp);
+                msc_abort_I(usbp);
             }
             chSysUnlockFromISR();
             usbSetupTransfer(usbp, nullptr, 0, nullptr);

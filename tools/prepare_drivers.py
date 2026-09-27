@@ -26,10 +26,15 @@ def replace(text, old, new):
 
 
 def scsi(s):
-    s = replace(s, '#include "lib_scsi.h"', '#include "lib_scsi.h"\n#include "reader_hooks.h"')
+    s = replace(s, '#include "lib_scsi.h"', '#include "lib_scsi.h"\n#include "reader_hooks.h"\n\n'
+                '/* Allocation length of the command being executed; replies never exceed it. */\n'
+                'static uint32_t allocation_limit = UINT32_MAX;')
     start = s.index('  const SCSITransport *trp = scsip->config->transport;', s.index('static bool transmit_data'))
     end = s.index('\n}\n', start)
     s = s[:start] + """  const SCSITransport *trp = scsip->config->transport;
+  if (len > allocation_limit) {
+    len = allocation_limit;
+  }
   if (len > scsip->residue) {
     len = scsip->residue;
   }
@@ -50,6 +55,40 @@ def scsi(s):
                 'if (blkRead(blkdev, req.first_lba + i, buf, n) != HAL_SUCCESS) {\n          reader_record_io(false, 0, false);')
     s = replace(s, 'scsip->config->blkbuf[buf_idx], n) != HAL_SUCCESS) {',
                 'scsip->config->blkbuf[buf_idx], n) != HAL_SUCCESS) {\n          reader_record_io(true, 0, false);')
+    s = replace(s, 'if (blkRead(blkdev, req.first_lba + i, buf, n) != HAL_SUCCESS) {',
+                'if (!read_blocks(blkdev, req.first_lba + i, buf, n)) {')
+    s = replace(s, 'if (blkWrite(blkdev, req.first_lba + i,\n                     scsip->config->blkbuf[buf_idx], n) != HAL_SUCCESS) {',
+                'if (!write_blocks(blkdev, req.first_lba + i,\n                     scsip->config->blkbuf[buf_idx], n)) {')
+    s = replace(s, 'static bool data_read_write10(SCSITarget *scsip, const uint8_t *cmd) {', """/* Retry transient card errors before failing a command; block IO is idempotent. */
+#define READER_IO_ATTEMPTS 3U
+
+static bool read_blocks(BaseBlockDevice *dev, uint32_t lba, uint8_t *buf, size_t n) {
+  for (unsigned attempt = 0; attempt < READER_IO_ATTEMPTS; attempt++) {
+    if (blkRead(dev, lba, buf, n) == HAL_SUCCESS) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool write_blocks(BaseBlockDevice *dev, uint32_t lba, const uint8_t *buf, size_t n) {
+  for (unsigned attempt = 0; attempt < READER_IO_ATTEMPTS; attempt++) {
+    if (blkWrite(dev, lba, buf, n) == HAL_SUCCESS) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* NOT READY: medium not present once ejected or failed, otherwise becoming ready. */
+static bool set_not_ready(SCSITarget *scsip) {
+  set_sense(scsip, SCSI_SENSE_KEY_NOT_READY,
+            reader_media_ready() ? SCSI_ASENSE_LOGICAL_UNIT_NOT_READY
+                                 : SCSI_ASENSE_MEDIUM_NOT_PRESENT, 0);
+  return SCSI_FAILED;
+}
+
+static bool data_read_write10(SCSITarget *scsip, const uint8_t *cmd) {""")
     # Ensure final card programming completes before CSW success.
     marker = '\n  return SCSI_SUCCESS;\n}\n\n/**\n * @brief   SCSI test unit ready'
     s = replace(s, marker, """
@@ -66,6 +105,7 @@ def scsi(s):
  * @brief   SCSI test unit ready""")
     s = replace(s, '  bool ret = SCSI_SUCCESS;\n\n  switch (cmd[0])', """
   bool ret = SCSI_SUCCESS;
+  allocation_limit = reader_allocation_length(cmd);
   if (cmd[0] != SCSI_CMD_INQUIRY && cmd[0] != SCSI_CMD_REQUEST_SENSE &&
       cmd[0] != SCSI_CMD_START_STOP_UNIT &&
       cmd[0] != SCSI_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL && !reader_media_ready()) {
@@ -83,22 +123,29 @@ def scsi(s):
     break;
 
   case SCSI_CMD_START_STOP_UNIT:
-    if (cmd[1] != 0 || (cmd[4] & ~3U) != 0) {
+    /* IMMED is accepted: every action completes before status is returned. */
+    if ((cmd[1] & ~1U) != 0 || (cmd[4] & ~3U) != 0) {
       ret = cmd_unhandled(scsip, cmd);
-    } else if ((cmd[4] & 1U) != 0) {
-      ret = reader_load() ? SCSI_SUCCESS : SCSI_FAILED;
     } else if ((cmd[4] & 2U) != 0) {
-      ret = reader_eject() ? SCSI_SUCCESS : SCSI_FAILED;
-    } else {
-      ret = reader_sync_media() ? SCSI_SUCCESS : SCSI_FAILED;
-    }
-    if (ret != SCSI_SUCCESS) {
-      set_sense(scsip, SCSI_SENSE_KEY_NOT_READY, SCSI_ASENSE_LOGICAL_UNIT_NOT_READY, 0);
+      /* LoEj: Start=1 loads, Start=0 ejects. */
+      if ((cmd[4] & 1U) == 0 && reader_removal_prevented()) {
+        set_sense(scsip, SCSI_SENSE_KEY_ILLEGAL_REQUEST, 0x53, 0x02); /* Removal prevented. */
+        ret = SCSI_FAILED;
+      } else if (!((cmd[4] & 1U) != 0 ? reader_load() : reader_eject())) {
+        ret = set_not_ready(scsip);
+      }
+    } else if ((cmd[4] & 1U) != 0) {
+      /* Start without LoEj never reloads ejected media. */
+      if (!reader_media_ready()) {
+        ret = set_not_ready(scsip);
+      }
+    } else if (!reader_sync_media()) {
+      ret = set_not_ready(scsip);
     }
     break;
 
   case 0x35: /* SYNCHRONIZE CACHE(10), synchronous, no volatile write cache. */
-    if (cmd[1] != 0) {
+    if ((cmd[1] & ~0x06U) != 0) { /* IMMED and SYNC_NV are harmless here. */
       ret = cmd_unhandled(scsip, cmd);
     } else if (!reader_sync_media()) {
       set_sense(scsip, SCSI_SENSE_KEY_MEDIUM_ERROR, 0, 0);
@@ -162,6 +209,7 @@ static THD_FUNCTION(usb_msd_worker, arg) {
     }
     command_epoch = received_epoch;
     if (!cbw_valid(&msdp->cbw, received) || !cbw_meaningful(&msdp->cbw)) {
+      reader_require_reset(command_epoch); /* Stalls persist until Bulk-Only reset. */
       stall_data(msdp, true);
       while (command_epoch == reader_usb_epoch()) {
         osalThreadSleepMilliseconds(10);
@@ -170,7 +218,9 @@ static THD_FUNCTION(usb_msd_worker, arg) {
     }
     msdp->scsi_target.residue = msdp->cbw.data_len;
     if (!reader_valid_transfer(&msdp->cbw)) {
-      stall_data(msdp, msdp->cbw.data_len == 0);
+      if (msdp->cbw.data_len != 0) {
+        stall_data(msdp, false);
+      }
       send_csw(msdp, CSW_STATUS_PHASE_ERROR, msdp->cbw.data_len);
       while (command_epoch == reader_usb_epoch()) {
         osalThreadSleepMilliseconds(10);
@@ -184,11 +234,14 @@ static THD_FUNCTION(usb_msd_worker, arg) {
     }
     const bool result = scsiExecCmd(&msdp->scsi_target, msdp->cbw.cmd_data);
     if (command_epoch == reader_usb_epoch()) {
-      if (result != SCSI_SUCCESS && scsiResidue(&msdp->scsi_target) != 0) {
+      const uint32_t residue = scsiResidue(&msdp->scsi_target);
+      const uint32_t sent = msdp->cbw.data_len - residue;
+      /* A short data stage must end in a short packet or a stall (BOT 6.7). */
+      if (residue != 0 && (result != SCSI_SUCCESS || (sent % 64U) == 0U)) {
         stall_data(msdp, false);
       }
       send_csw(msdp, result == SCSI_SUCCESS ? CSW_STATUS_PASSED : CSW_STATUS_FAILED,
-               scsiResidue(&msdp->scsi_target));
+               residue);
     }
     reader_end_command();
   }

@@ -60,6 +60,16 @@ def sync():
             if state.get(item.name) != current:
                 raise RuntimeError(f"Refusing to overwrite local upstream edit: {target}")
         pending.append((item.name, target, data))
+    # Remove copies this tool generated whose source was deleted or renamed; they
+    # would otherwise still be compiled into the firmware.
+    stale = sorted(set(state) - {name for name, _, _ in pending})
+    for name in stale:
+        target = destination / name
+        if target.exists() and hashlib.sha256(target.read_bytes()).hexdigest() != state[name]:
+            raise RuntimeError(f"Refusing to delete local upstream edit: {target}")
+    for name in stale:
+        (destination / name).unlink(missing_ok=True)
+        del state[name]
     destination.mkdir(parents=True, exist_ok=True)
     for name, target, data in pending:
         target.write_bytes(data)

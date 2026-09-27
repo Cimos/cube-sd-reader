@@ -6,7 +6,7 @@
 
 static uint8_t media[32 * 512], host[32 * 512], buffers[2][512];
 static size_t position, pending;
-static unsigned reads, writes, syncs;
+static unsigned reads, writes, syncs, fail_reads, fail_writes;
 static bool ready, prevented, fail_sync;
 static BaseBlockDevice device;
 static SCSITarget target;
@@ -24,12 +24,16 @@ bool blkIsWriteProtected(BaseBlockDevice *d) { (void)d; return false; }
 bool blkRead(BaseBlockDevice *d, uint32_t first, uint8_t *out, size_t count)
 {
     (void)d; assert(first <= 32 && count <= 32 - first);
-    reads++; memcpy(out, media + first * 512, count * 512); return HAL_SUCCESS;
+    reads++;
+    if (fail_reads) { fail_reads--; return HAL_FAILED; }
+    memcpy(out, media + first * 512, count * 512); return HAL_SUCCESS;
 }
 bool blkWrite(BaseBlockDevice *d, uint32_t first, const uint8_t *in, size_t count)
 {
     (void)d; assert(first <= 32 && count <= 32 - first);
-    writes++; memcpy(media + first * 512, in, count * 512); return HAL_SUCCESS;
+    writes++;
+    if (fail_writes) { fail_writes--; return HAL_FAILED; }
+    memcpy(media + first * 512, in, count * 512); return HAL_SUCCESS;
 }
 bool reader_media_ready(void) { return ready; }
 bool reader_sync_media(void) { syncs++; return ready && !fail_sync; }
@@ -40,6 +44,7 @@ bool reader_eject(void)
 }
 bool reader_load(void) { ready = true; return true; }
 void reader_prevent(bool value) { prevented = value; }
+bool reader_removal_prevented(void) { return prevented; }
 void reader_record_io(bool write, uint32_t sectors, bool success)
 { (void)write; (void)sectors; if (!success) { ready = false; } }
 
@@ -67,7 +72,7 @@ static bool execute(uint8_t *cmd, uint32_t bytes)
 static void reset(void)
 {
     ready = true; prevented = fail_sync = false;
-    reads = writes = syncs = 0;
+    reads = writes = syncs = fail_reads = fail_writes = 0;
     memset(host, 0xCC, sizeof(host));
     memset(media, 0x5A, sizeof(media));
     scsiObjectInit(&target); scsiStart(&target, &config);
@@ -108,6 +113,7 @@ int main(void)
     assert(execute(cmd, 0) == SCSI_SUCCESS);
     cmd[0] = 0x1B; cmd[4] = 2;
     assert(execute(cmd, 0) == SCSI_FAILED && ready);
+    assert(target.sense.byte[2] == 0x05 && target.sense.byte[12] == 0x53 && target.sense.byte[13] == 0x02);
     cmd[0] = 0x1E; cmd[4] = 0;
     assert(execute(cmd, 0) == SCSI_SUCCESS);
     cmd[0] = 0x1B; cmd[4] = 2;
@@ -120,6 +126,47 @@ int main(void)
     cbw.data_len = 511; assert(!reader_valid_transfer(&cbw));
     cbw.data_len = 512; cbw.flags = 0; assert(!reader_valid_transfer(&cbw));
     cbw.flags = 0x80; cbw.cmd_len = 6; assert(!reader_valid_transfer(&cbw));
+
+    /* Replies never exceed the allocation length, even for a longer host transfer. */
+    reset();
+    memset(cmd, 0, sizeof(cmd)); cmd[0] = 0x12; cmd[4] = 4;
+    assert(execute(cmd, 36) == SCSI_SUCCESS && position == 4 && target.residue == 32);
+    /* INQUIRY allocation length is 16 bits. */
+    cmd[3] = 1; cmd[4] = 0;
+    assert(execute(cmd, 256) == SCSI_SUCCESS && position == 36 && target.residue == 220);
+    cbw = (msd_cbw_t){.cmd_len = 6, .data_len = 255, .flags = 0x80, .cmd_data = {0x12, 0, 0, 0, 36}};
+    assert(reader_valid_transfer(&cbw) && reader_allocation_length(cbw.cmd_data) == 36);
+    cbw.cmd_data[3] = 1; cbw.cmd_data[4] = 0;
+    assert(reader_allocation_length(cbw.cmd_data) == 256);
+    cbw.flags = 0; assert(!reader_valid_transfer(&cbw));
+    cbw.cmd_data[0] = 0x28; assert(reader_allocation_length(cbw.cmd_data) == UINT32_MAX);
+
+    /* START STOP UNIT: IMMED accepted, bad fields keep ILLEGAL REQUEST sense. */
+    reset();
+    memset(cmd, 0, sizeof(cmd)); cmd[0] = 0x1B; cmd[1] = 1; cmd[4] = 2;
+    assert(execute(cmd, 0) == SCSI_SUCCESS && !ready);
+    cmd[1] = 0; cmd[4] = 1; /* Start without LoEj must not reload. */
+    assert(execute(cmd, 0) == SCSI_FAILED && !ready);
+    assert(target.sense.byte[2] == 0x02 && target.sense.byte[12] == 0x3A);
+    cmd[4] = 3; /* LoEj + Start loads. */
+    assert(execute(cmd, 0) == SCSI_SUCCESS && ready);
+    cmd[1] = 2;
+    assert(execute(cmd, 0) == SCSI_FAILED && target.sense.byte[2] == 0x05 && target.sense.byte[12] == 0x20);
+    memset(cmd, 0, sizeof(cmd)); cmd[0] = 0x35; cmd[1] = 0x06; /* IMMED + SYNC_NV */
+    assert(execute(cmd, 0) == SCSI_SUCCESS);
+    cmd[1] = 0x01;
+    assert(execute(cmd, 0) == SCSI_FAILED);
+
+    /* Transient card errors are retried; persistent ones fail the command. */
+    reset();
+    memset(cmd, 0, sizeof(cmd)); cmd[0] = 0x28; cmd[8] = 1;
+    fail_reads = 2;
+    assert(execute(cmd, 512) == SCSI_SUCCESS && reads == 3 && ready);
+    fail_reads = 3;
+    assert(execute(cmd, 512) == SCSI_FAILED && target.sense.byte[2] == 0x03 && !ready);
+    reset();
+    cmd[0] = 0x2A; fail_writes = 1;
+    assert(execute(cmd, 512) == SCSI_SUCCESS && writes == 2);
     puts("SCSI/transfer tests passed");
     return 0;
 }

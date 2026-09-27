@@ -367,6 +367,7 @@ static THD_FUNCTION(usb_msd_worker, arg) {
     }
 
     if (!cbw_valid(&msdp->cbw, received) || !cbw_meaningful(&msdp->cbw)) {
+      reader_require_reset(command_epoch); /* Stalls persist until Bulk-Only reset. */
       stall_data(msdp, true);
       while (command_epoch == reader_usb_epoch()) {
         osalThreadSleepMilliseconds(10);
@@ -375,7 +376,9 @@ static THD_FUNCTION(usb_msd_worker, arg) {
     }
     msdp->scsi_target.residue = msdp->cbw.data_len;
     if (!reader_valid_transfer(&msdp->cbw)) {
-      stall_data(msdp, msdp->cbw.data_len == 0);
+      if (msdp->cbw.data_len != 0) {
+        stall_data(msdp, false);
+      }
       send_csw(msdp, CSW_STATUS_PHASE_ERROR, msdp->cbw.data_len);
       while (command_epoch == reader_usb_epoch()) {
         osalThreadSleepMilliseconds(10);
@@ -389,11 +392,14 @@ static THD_FUNCTION(usb_msd_worker, arg) {
     }
     const bool result = scsiExecCmd(&msdp->scsi_target, msdp->cbw.cmd_data);
     if (command_epoch == reader_usb_epoch()) {
-      if (result != SCSI_SUCCESS && scsiResidue(&msdp->scsi_target) != 0) {
+      const uint32_t residue = scsiResidue(&msdp->scsi_target);
+      const uint32_t sent = msdp->cbw.data_len - residue;
+      /* A short data stage must end in a short packet or a stall (BOT 6.7). */
+      if (residue != 0 && (result != SCSI_SUCCESS || (sent % 64U) == 0U)) {
         stall_data(msdp, false);
       }
       send_csw(msdp, result == SCSI_SUCCESS ? CSW_STATUS_PASSED : CSW_STATUS_FAILED,
-               scsiResidue(&msdp->scsi_target));
+               residue);
     }
     reader_end_command();
   }
