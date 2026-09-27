@@ -33,6 +33,7 @@ No reader SD IO errors were reported during the workload. Decimal MB/s includes 
 ## Findings
 
 - Installed CubePilot serial drivers outranked the MSC class driver. A targeted switch to Microsoft's storage driver worked; restored ArduPilot subsequently bound correctly. Automatic driver migration/product USB identity remains unresolved.
+- **Current Windows regression:** after reinstalling the reader, Windows again binds the storage interface (`MI_00`) to CubePilot's `oem75.inf`/`usbser` driver because the firmware inherits CubeOrange+ VID:PID `2DAE:1058`. The interface appears as `Cube Orange+ Mavlink (COM21)` and no disk is created, while CDC remains available on `COM23`. Device Manager reports service `usbser` and driver `oem75.inf`; the firmware reports `media=ready` and the SD card is initialized. Switching only `MI_00` to Microsoft's USB Mass Storage driver restores the disk. A follow-up agent should fix the USB identity/descriptor or Windows driver matching without breaking the existing bootloader interface.
 - The original Windows EJECT_MEDIA/reopen-CDC helper failed. Keeping CDC and the locked volume open while issuing explicit SCSI cache-sync/eject and then reboot fixed the tested sequence.
 - Power-cycle capture proves recovery independent of the reader control command. Deliberate application crash/corruption and damaged-bootloader recovery were not tested.
 
