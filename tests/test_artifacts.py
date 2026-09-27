@@ -33,6 +33,7 @@ class ArtifactTests(unittest.TestCase):
         result = MODULE.validate(ELF, APJ, BIN)
         self.assertEqual(result["application_descriptor_crc"], "passed")
         self.assertEqual(result["usb_id"], "2DAE:1158")
+        self.assertEqual(result["disk_name"], "Cube USB Drive")
 
     def test_wrong_board_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

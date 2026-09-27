@@ -11,6 +11,7 @@ from pathlib import Path
 FLASH_START = 0x08020000
 FLASH_END = 0x08200000
 READER_USB_ID = (0x2DAE, 0x1158)
+DISK_NAME = b"Cube    USB Drive       "  # INQUIRY vendor (8) + product (16)
 # VID 2DAE PIDs matched by CubePilot Windows INFs (serial, CCGP) or used by Cube
 # bootloaders/flight firmware. Any of these lets a vendor driver claim the MSC interface.
 CUBEPILOT_DRIVER_PIDS = {0x0001, 0x0002, 0x1001, 0x1002, 0x1005, 0x1011, 0x1012, 0x1015,
@@ -103,6 +104,8 @@ def validate(elf, apj, binary):
     check(vid != 0x2DAE or pid not in CUBEPILOT_DRIVER_PIDS,
           "Reader PID %04X is claimed by a CubePilot Windows driver" % pid)
     check(bcd not in (0x0101, 0x0200), "bcdDevice matches a CubePilot REV_ driver entry")
+    inquiry = elf_symbol(data, "default_scsi_inquiry_response")
+    check(len(inquiry) == 36 and inquiry[8:32] == DISK_NAME, "Unexpected SCSI INQUIRY disk name")
     symbols = subprocess.check_output(["arm-none-eabi-nm", "-C", str(elf)], text=True)
     prohibited = ("stm32_flash_write", "stm32_flash_erasepage", "f_mount", "f_write",
                   "HAL_ChibiOS::run", "AP_IOMCU::init", "AP_Param::save")
@@ -110,6 +113,7 @@ def validate(elf, apj, binary):
         check(symbol not in symbols, "Unexpected flight/filesystem/flash dependency: " + symbol)
     return {"board_id": 1063, "origin": hex(FLASH_START), "entry": hex(header[4]),
             "image_bytes": len(raw), "usb_id": "%04X:%04X" % (vid, pid),
+            "disk_name": " ".join(inquiry[8:32].decode().split()),
             "usb_interfaces": interfaces, "usb_endpoints": endpoints,
             "reserved_flash_check": "passed", "prohibited_symbols": "absent",
             "application_descriptor_crc": "passed", "hardware_tested": False}

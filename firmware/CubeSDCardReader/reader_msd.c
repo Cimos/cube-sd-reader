@@ -107,8 +107,8 @@ static const scsi_inquiry_response_t default_scsi_inquiry_response = {
     0x00,
     0x00,
     0x00,
-    "Chibios",
-    "Mass Storage",
+    "Cube    ",           /* INQUIRY vendor, space padded to 8  */
+    "USB Drive       ",   /* INQUIRY product, space padded to 16 */
     {'v',CH_KERNEL_MAJOR+'0','.',CH_KERNEL_MINOR+'0'}
 };
 

@@ -117,6 +117,10 @@ def scsi(s):
 def msd(s):
     # Transport reuse with reset epochs, CBW validation and controlled admission.
     s = replace(s, '#include "hal.h"', '#include "hal.h"\n#include "reader_hooks.h"\nstatic uint32_t command_epoch;')
+    # Hosts show INQUIRY vendor + product as the disk name ("Cube USB Drive").
+    s = replace(s, '    "Chibios",\n    "Mass Storage",',
+                '    "Cube    ",           /* INQUIRY vendor, space padded to 8  */\n'
+                '    "USB Drive       ",   /* INQUIRY product, space padded to 16 */')
     s = replace(s, 'if (((cbw->cmd_len & CBW_CMD_LEN_RESERVED_MASK) != 0)',
                 'if ((cbw->cmd_len == 0 || cbw->cmd_len > 16)\n      || ((cbw->cmd_len & CBW_CMD_LEN_RESERVED_MASK) != 0)')
     # Original calls inside IO worker and blocking transport functions.

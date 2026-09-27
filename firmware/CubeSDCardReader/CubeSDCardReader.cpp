@@ -300,7 +300,7 @@ static void handle_line(const char *line)
     if (strcmp(line, "info") == 0) {
         char response[150];
         snprintf(response, sizeof(response),
-                 "OK protocol=1 firmware=0.1.0-dev board=CubeOrangePlus upstream=4c98c9221a serial=%s\r\n",
+                 "OK protocol=1 firmware=0.1.0 board=CubeOrangePlus upstream=4c98c9221a serial=%s\r\n",
                  usb_serial);
         reply(response);
     } else if (strcmp(line, "status") == 0) {
@@ -374,7 +374,7 @@ extern "C" int main(int argc, char *const argv[])
 
     peripheral_power_enable();
     make_string(1, "Cube SD Reader Dev");
-    make_string(2, "Cube SD Card Reader");
+    make_string(2, "Cube USB Drive");
 
     const auto *uid = reinterpret_cast<const uint8_t *>(UDID_START);
     for (unsigned i = 0; i < 12; i++) {
