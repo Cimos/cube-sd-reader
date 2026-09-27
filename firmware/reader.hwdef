@@ -1,0 +1,6 @@
+# Dedicated reader configuration, applied after CubeOrangePlus hardware definition.
+# Crash dumps must never write a filesystem owned by the USB host.
+define AP_CRASHDUMP_ENABLED 0
+define AP_CRASHDUMP_FATFS_ENABLED 0
+define AP_CRASHDUMP_FLASH_ENABLED 0
+define HAL_ENABLE_SAVE_PERSISTENT_PARAMS 0

@@ -1,0 +1,6 @@
+empy==3.3.4
+future==1.0.0
+pexpect==4.9.0
+ptyprocess==0.7.0
+PyYAML==6.0.2
+pyserial==3.5

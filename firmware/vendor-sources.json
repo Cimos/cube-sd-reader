@@ -1,0 +1,17 @@
+[
+  {
+    "file": "reader_scsi.c",
+    "upstream_path": "os/various/scsi_bindings/lib_scsi.c",
+    "upstream_sha256": "f3459057ed76db65987b8d8c5991726335d413d2eedf457434cb7073215812bb"
+  },
+  {
+    "file": "reader_msd.c",
+    "upstream_path": "os/hal/src/hal_usb_msd.c",
+    "upstream_sha256": "91a7136a9d0e59d03eeb29c0186489f3695b7dc72b28fe52c303223c5ffe715f"
+  },
+  {
+    "file": "reader_sdc.c",
+    "upstream_path": "os/hal/src/hal_sdc.c",
+    "upstream_sha256": "6331bd5236d5090303e588722189f61b0c6c1d3eb25649aa14799a5f769ecc8e"
+  }
+]

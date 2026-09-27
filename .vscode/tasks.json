@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Reader: build firmware",
+      "type": "shell",
+      "command": "python3 tools/dev.py build --jobs 4",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Reader: check environment",
+      "type": "shell",
+      "command": "python3 tools/dev.py doctor",
+      "problemMatcher": []
+    },
+    {
+      "label": "Reader: bootstrap dependencies",
+      "type": "shell",
+      "command": "python3 tools/dev.py bootstrap",
+      "problemMatcher": []
+    }
+  ]
+}

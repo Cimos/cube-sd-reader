@@ -1,0 +1,9 @@
+{
+  "ardupilot": {
+    "url": "https://github.com/ArduPilot/ardupilot.git",
+    "commit": "4c98c9221ad6933ab1c70fba8a3900ba2ff02f3b"
+  },
+  "board": "CubeOrangePlus",
+  "target": "examples/CubeSDCardReader",
+  "compiler": "GNU Arm Embedded 10-2020-q4-major (10.2.1)"
+}
