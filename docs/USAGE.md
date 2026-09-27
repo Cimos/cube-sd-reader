@@ -10,7 +10,7 @@ Expected USB functions are a removable SD disk and CDC control port. A missing c
 
 ### Windows driver binding
 
-The reader enumerates as `USB\VID_2DAE&PID_1158`. No CubePilot driver matches that ID, so Windows uses its own drivers: **USB Mass Storage Device** for the disk (`MI_00`) and **USB Serial Device** for the control port (`MI_01`). No driver change is needed.
+The reader enumerates as `USB\VID_2DAE&PID_1158`. No CubePilot driver matches that ID, so Windows uses its own drivers: **USB Mass Storage Device** for the disk (`MI_00`) and **USB Serial Device** for the control port (`MI_01`). No driver change is needed. The disk is named **Cube USB Drive**; Explorer shows the card's own volume label, which you can rename as usual.
 
 Images built before this change used the CubeOrange+ ID `2DAE:1058`. CubePilot's serial INF claimed the storage interface as `Cube Orange+ Mavlink (COMxx)` and no disk appeared. If you see that, the board is running an old reader image; reflash the current one. A manual driver switch made on the old ID applies only to `PID_1058` and can be left alone or rolled back in Device Manager. Do not remove the CubePilot driver package.
 

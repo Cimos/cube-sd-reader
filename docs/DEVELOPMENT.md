@@ -35,13 +35,15 @@ The reader reuses CubeOrange+ startup, raw SDMMC, DMA bounce buffers, ChibiOS US
 
 The first 128 KiB of flash remain reserved for the existing bootloader. Artifact validation checks flash placement, CubeOrange+ board ID 1063, vectors, USB descriptors, APJ payload and application descriptor CRCs. It rejects linked flight-HAL, filesystem and flash-writing symbols.
 
-Output is an unsigned development application. Boards requiring signatures need their legitimate signing process. No build command uploads firmware.
+Output is an unsigned application. Boards requiring signatures need their legitimate signing process. No build command uploads firmware.
 
 ## USB identity
 
 The reader uses VID:PID 2DAE:1158 (`READER_USB_VENDOR_ID`/`READER_USB_PRODUCT_ID` in CubeSDCardReader.cpp), with a reader product string and MCU-derived serial. It must not reuse the CubeOrange+ PID 2DAE:1058: CubePilot's Windows INF binds `PID_1058&MI_00` to usbser, which is the reader's MSC interface. With an unlisted PID, Windows loads its in-box USBSTOR and usbser class drivers.
 
-The artifact validator rejects any PID matched by a known CubePilot INF or Cube bootloader (list in tools/validate_artifacts.py). 0x1158 is a development allocation; confirm it with CubePilot before distributing a product. Board packaging ID and USB PID are separate.
+The artifact validator rejects any PID matched by a known CubePilot INF or Cube bootloader (list in tools/validate_artifacts.py). Board packaging ID and USB PID are separate.
+
+The disk name comes from the SCSI INQUIRY vendor/product fields (`Cube` / `USB Drive`), set by tools/prepare_drivers.py in reader_msd.c and checked by the validator.
 
 ## Validation
 

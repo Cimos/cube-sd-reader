@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-`python3 tools/dev.py build --jobs 8` runs the host suite and validates the linked firmware package. Tests cover parser/reboot policy, actual SCSI and transfer code under sanitizers, short responses, range/length checks, helper identity, source overlay preservation and corrupt/wrong-board packages.
+`python3 tools/dev.py build --jobs 8` runs the host suite and validates the linked firmware package. Tests cover parser/reboot policy, actual SCSI and transfer code under sanitizers, short responses, allocation-length capping, START STOP UNIT and SYNCHRONIZE CACHE fields, card IO retries, range/length checks, helper identity, source overlay preservation and cleanup, USB identity and disk name, and corrupt/wrong-board packages.
 
 The ELF/APJ validator checks the reserved flash region, board ID, vectors, composite USB descriptors and application descriptor CRC. A successful build is not hardware qualification.
 
@@ -42,6 +42,21 @@ Same CubeOrange+ and 64 GB FAT32 card, same Windows host with CubePilot drivers 
 | Reader status after read | `media=ready`, 0 errors |
 
 Windows reported the volume health as Warning after the unplug used for flashing, most likely the FAT dirty flag. CHKDSK was not rerun.
+
+## v0.1.0 session — 27 September 2026
+
+Same CubeOrange+ and card. v0.1.0 (46,152 bytes) adds the disk name and the Bulk-Only/SCSI fixes. A CubeOrange was also attached and was not touched.
+
+| Test | Result |
+|---|---|
+| Windows eject of the mounted disk | Reader reported `media=ejected`, 0 errors |
+| `readerctl bootloader` after eject | Accepted; waiting uploader found board type 1063, verify passed, no replug |
+| Enumeration | `2DAE:1158`, disk named **Cube USB Drive**, USBSTOR + usbser, no driver change |
+| 16 MiB write including flush | 18.1 s, about 0.93 MB/s; file hash matched, file removed |
+| 32 MiB uncached read | 29.6 s, about 1.13 MB/s; SHA-256 matches the first session's manifest |
+| Reader status afterwards | `media=ready`, 0 errors |
+
+The Bulk-Only reset, clear-halt and START STOP changes are covered by host tests and this normal-use run; forced USB error recovery was not exercised on hardware.
 
 ## Findings
 
