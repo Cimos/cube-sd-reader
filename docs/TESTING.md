@@ -30,10 +30,23 @@ CubeOrange+, existing bootloader protocol 5, one 64 GB FAT32 card, Windows host.
 
 No reader SD IO errors were reported during the workload. Decimal MB/s includes host Python/file processing; writes include fsync. Read-after-reboot used a fresh volume instance, but no external-reader verification was performed. This is a small benchmark, not endurance qualification.
 
+## USB identity retest — 27 September 2026
+
+Same CubeOrange+ and 64 GB FAT32 card, same Windows host with CubePilot drivers still installed. Reader image with USB ID `2DAE:1158`, 45,348 bytes, flashed through the existing bootloader by power-cycle capture (board type 1063, verify passed).
+
+| Test | Result |
+|---|---|
+| Driver binding, no manual change | `MI_00` USB Mass Storage Device (USBSTOR), `MI_01` USB Serial Device (usbser, COM24), parent usbccgp |
+| Disk | Online, 62,534,975,488 bytes, MBR, FAT32 volume mounted as D: |
+| 32 MiB file hash read | 29.7 s, about 1.13 MB/s |
+| Reader status after read | `media=ready`, 0 errors |
+
+Windows reported the volume health as Warning after the unplug used for flashing, most likely the FAT dirty flag. CHKDSK was not rerun.
+
 ## Findings
 
 - Installed CubePilot serial drivers outranked the MSC class driver. A targeted switch to Microsoft's storage driver worked; restored ArduPilot subsequently bound correctly. Superseded by the distinct reader USB identity below.
-- **Windows driver collision (fixed in firmware, not yet hardware-tested):** the bench image used CubeOrange+ VID:PID `2DAE:1058`, so CubePilot's `oem75.inf` bound `MI_00` (the storage interface) to `usbser`. It showed as `Cube Orange+ Mavlink (COM21)` with no disk while the reader reported `media=ready`. The reader now uses `2DAE:1158`, which no installed CubePilot INF lists (checked against oem73/74/75 on the bench host); the build validator enforces this. Expected result: USBSTOR disk plus in-box USB Serial Device without any driver change. Still needs a bench run to confirm.
+- **Windows driver collision (fixed):** the first bench image used CubeOrange+ VID:PID `2DAE:1058`, so CubePilot's `oem75.inf` bound `MI_00` (the storage interface) to `usbser`. It showed as `Cube Orange+ Mavlink (COM21)` with no disk while the reader reported `media=ready`. The reader now uses `2DAE:1158`, which no installed CubePilot INF lists (checked against oem73/74/75 on the bench host); the build validator enforces this.
 - The original Windows EJECT_MEDIA/reopen-CDC helper failed. Keeping CDC and the locked volume open while issuing explicit SCSI cache-sync/eject and then reboot fixed the tested sequence.
 - Power-cycle capture proves recovery independent of the reader control command. Deliberate application crash/corruption and damaged-bootloader recovery were not tested.
 
