@@ -39,7 +39,9 @@ Output is an unsigned development application. Boards requiring signatures need 
 
 ## USB identity
 
-Development firmware inherits CubeOrange+ VID:PID 2DAE:1058, with a reader product string and MCU-derived serial. Installed CubePilot drivers can outrank the MSC class driver. Resolve vendor-approved USB identity and migration before distributing a product. Board packaging ID and USB PID are separate.
+The reader uses VID:PID 2DAE:1158 (`READER_USB_VENDOR_ID`/`READER_USB_PRODUCT_ID` in CubeSDCardReader.cpp), with a reader product string and MCU-derived serial. It must not reuse the CubeOrange+ PID 2DAE:1058: CubePilot's Windows INF binds `PID_1058&MI_00` to usbser, which is the reader's MSC interface. With an unlisted PID, Windows loads its in-box USBSTOR and usbser class drivers.
+
+The artifact validator rejects any PID matched by a known CubePilot INF or Cube bootloader (list in tools/validate_artifacts.py). 0x1158 is a development allocation; confirm it with CubePilot before distributing a product. Board packaging ID and USB PID are separate.
 
 ## Validation
 

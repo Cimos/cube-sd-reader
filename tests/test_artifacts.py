@@ -2,6 +2,7 @@
 import base64
 import importlib.util
 import json
+import re
 import tempfile
 import unittest
 import zlib
@@ -17,10 +18,21 @@ APJ = BUILD / "bin/CubeSDCardReader.apj"
 BIN = BUILD / "bin/CubeSDCardReader.bin"
 
 
+class UsbIdentityTests(unittest.TestCase):
+    def test_firmware_pid_matches_validator_and_avoids_cubepilot_drivers(self):
+        source = (ROOT / "firmware/CubeSDCardReader/CubeSDCardReader.cpp").read_text()
+        vid = int(re.search(r"define READER_USB_VENDOR_ID (0x[0-9A-Fa-f]+)", source).group(1), 16)
+        pid = int(re.search(r"define READER_USB_PRODUCT_ID (0x[0-9A-Fa-f]+)", source).group(1), 16)
+        self.assertEqual((vid, pid), MODULE.READER_USB_ID)
+        self.assertNotIn(pid, MODULE.CUBEPILOT_DRIVER_PIDS)
+
+
 @unittest.skipUnless(ELF.exists() and APJ.exists(), "Build artifacts not present yet")
 class ArtifactTests(unittest.TestCase):
     def test_current_package(self):
-        self.assertEqual(MODULE.validate(ELF, APJ, BIN)["application_descriptor_crc"], "passed")
+        result = MODULE.validate(ELF, APJ, BIN)
+        self.assertEqual(result["application_descriptor_crc"], "passed")
+        self.assertEqual(result["usb_id"], "2DAE:1158")
 
     def test_wrong_board_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -32,7 +32,7 @@ The build runs tests and validates the image, then writes the APJ, BIN, ELF, map
 
 Upload `CubeSDCardReader.apj` through the existing CubeOrange+ bootloader. The reader replaces the flight application until ArduPilot is reflashed. Use a bench device with outputs disconnected.
 
-**Windows driver caveat:** installed CubePilot drivers can bind the storage interface as a serial port. The tested host needed that reader interface switched to Microsoft's USB Mass Storage driver. A production USB identity and automatic driver migration are not yet resolved.
+The reader enumerates as USB `2DAE:1158`, separate from the CubeOrange+ `2DAE:1058`, so installed CubePilot serial drivers no longer claim the disk. The PID is a development allocation until CubePilot confirms it.
 
 See [usage and recovery](docs/USAGE.md), [development](docs/DEVELOPMENT.md), and [test coverage](docs/TESTING.md).
 

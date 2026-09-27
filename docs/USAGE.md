@@ -10,11 +10,9 @@ Expected USB functions are a removable SD disk and CDC control port. A missing c
 
 ### Windows driver binding
 
-An installed CubePilot driver may label the storage interface as a Mavlink COM port. Check the interface's compatible ID: storage is class 08, subclass 06, protocol 50. On the tested Windows host, switching that interface to Microsoft's **USB Mass Storage Device** driver enabled the disk.
+The reader enumerates as `USB\VID_2DAE&PID_1158`. No CubePilot driver matches that ID, so Windows uses its own drivers: **USB Mass Storage Device** for the disk (`MI_00`) and **USB Serial Device** for the control port (`MI_01`). No driver change is needed.
 
-This is a known compatibility defect in the current development image. The firmware inherits CubeOrange+ VID:PID `2DAE:1058`, so CubePilot's `oem75.inf` can claim interface `MI_00` with `usbser`. The symptom is `Cube Orange+ Mavlink (COM21)` plus the CDC control port, with no disk in Disk Management, even though reader `status` reports `media=ready`. Switch only `MI_00` to the Microsoft storage driver as a temporary workaround. Do not remove the CubePilot driver package or change unrelated devices. A future fix should give the reader a distinct USB identity or otherwise prevent the serial INF from matching the MSC interface.
-
-Do not remove the CubePilot driver package or change unrelated devices. Windows requires administrator rights for the driver switch. Product naming can remain cached from a previous firmware.
+Images built before this change used the CubeOrange+ ID `2DAE:1058`. CubePilot's serial INF claimed the storage interface as `Cube Orange+ Mavlink (COMxx)` and no disk appeared. If you see that, the board is running an old reader image; reflash the current one. A manual driver switch made on the old ID applies only to `PID_1058` and can be left alone or rolled back in Device Manager. Do not remove the CubePilot driver package.
 
 ## Control
 

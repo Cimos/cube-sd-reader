@@ -132,9 +132,21 @@ extern "C" uint32_t reader_usb_epoch()
     return epoch; // Single-core aligned 32-bit ISR counter; also callable under the kernel lock.
 }
 
+// Reader-only USB identity. The CubeOrange+ PID 0x1058 is claimed by CubePilot's
+// Windows serial INF (MI_00 -> usbser), which hides the MSC interface. This PID is
+// in no CubePilot INF, so Windows binds the in-box USBSTOR and usbser class drivers.
+#ifndef READER_USB_VENDOR_ID
+#define READER_USB_VENDOR_ID 0x2DAE
+#endif
+#ifndef READER_USB_PRODUCT_ID
+#define READER_USB_PRODUCT_ID 0x1158
+#endif
+static_assert(READER_USB_PRODUCT_ID != HAL_USB_PRODUCT_ID,
+              "Reader must not share the flight/bootloader USB PID");
+
 static const uint8_t device_data[] = {
     USB_DESC_DEVICE(0x0200, 0xEF, 0x02, 0x01, 64,
-                    HAL_USB_VENDOR_ID, HAL_USB_PRODUCT_ID, 0x0300, 1, 2, 3, 1)
+                    READER_USB_VENDOR_ID, READER_USB_PRODUCT_ID, 0x0300, 1, 2, 3, 1)
 };
 static const uint8_t configuration_data[] = {
     USB_DESC_CONFIGURATION(98, 3, 1, 0, 0xC0, 50),
